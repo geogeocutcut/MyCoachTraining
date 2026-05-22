@@ -4,7 +4,10 @@
 *.log
 *.pyc
 *.swp
+<<<<<<< HEAD
 .claude/
+=======
+>>>>>>> 57109161ba237596588224cf294ce08dcb4367ce
 .buildlog/
 .history
 

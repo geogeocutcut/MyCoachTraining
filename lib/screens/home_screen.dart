@@ -91,7 +91,7 @@ class _HomePage extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: const [
                     Text(
-                      'KinéTracker',
+                      'MyCoachTraining',
                       style: TextStyle(
                         fontSize: 22,
                         fontWeight: FontWeight.bold,
@@ -99,7 +99,7 @@ class _HomePage extends StatelessWidget {
                       ),
                     ),
                     Text(
-                      'Vos exercices de rééducation',
+                      'Your personal training coach',
                       style: TextStyle(
                           fontSize: 13, color: AppColors.textGrey),
                     ),

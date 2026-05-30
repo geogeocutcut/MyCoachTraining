@@ -192,19 +192,26 @@ class _EditExerciseScreenState extends State<EditExerciseScreen> {
           onTap: _pickImage,
           child: Container(
             width: double.infinity,
-            height: 160,
+            height: 200,
             decoration: BoxDecoration(
               color: AppColors.background,
               borderRadius: BorderRadius.circular(12),
               border: Border.all(color: AppColors.border),
             ),
-            child: _imagePath != null &&
-                    File(_imagePath!).existsSync()
+            child: _imagePath != null && File(_imagePath!).existsSync()
                 ? ClipRRect(
                     borderRadius: BorderRadius.circular(12),
-                    child: Image.file(File(_imagePath!),
-                        fit: BoxFit.cover,
-                        width: double.infinity))
+                    child: Container(
+                      color: AppColors.background,
+                      width: double.infinity,
+                      height: 200,
+                      child: Image.file(
+                        File(_imagePath!),
+                        fit: BoxFit.contain,
+                        width: double.infinity,
+                        height: 200,
+                      ),
+                    ))
                 : const Column(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [

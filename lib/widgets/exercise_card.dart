@@ -18,6 +18,8 @@ class CategoryBadge extends StatelessWidget {
         return AppColors.mobiliteBg;
       case ExerciseCategory.etirement:
         return AppColors.etirementBg;
+      case ExerciseCategory.cardio:
+        return AppColors.cardioBg;
       case ExerciseCategory.autre:
         return AppColors.autreBg;
     }
@@ -33,6 +35,8 @@ class CategoryBadge extends StatelessWidget {
         return AppColors.mobiliteColor;
       case ExerciseCategory.etirement:
         return AppColors.etirementColor;
+      case ExerciseCategory.cardio:
+        return AppColors.cardioColor;
       case ExerciseCategory.autre:
         return AppColors.autreColor;
     }

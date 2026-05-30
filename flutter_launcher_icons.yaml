@@ -1,0 +1,7 @@
+flutter_launcher_icons:
+  android: "launcher_icon"
+  ios: true
+  image_path: "assets/images/mycoatchtraining_icon.png"
+  # Optionnel mais recommandé pour les icônes adaptatives Android (bords gérés par le système) :
+  adaptive_icon_background: "#008080" # Remplacez par le code hexa de votre AppColors.teal
+  

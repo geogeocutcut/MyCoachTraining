@@ -230,13 +230,12 @@ class DataStore extends ChangeNotifier {
         description:
             'Programme de rééducation prescrit par votre kinésithérapeute. À faire 3 fois par semaine.',
         rounds: 2,
-        restBetweenExercises: 15,
         restBetweenRounds: 60,
         exercises: [
-          SessionExercise(exerciseId: exIds[3], customValue: 30),
-          SessionExercise(exerciseId: exIds[4], customValue: 15),
-          SessionExercise(exerciseId: exIds[5], customValue: 45),
-          SessionExercise(exerciseId: exIds[0], customValue: 30),
+          SessionExercise(exerciseId: exIds[3], customValue: 30, restAfter: 15),
+          SessionExercise(exerciseId: exIds[4], customValue: 15, restAfter: 15),
+          SessionExercise(exerciseId: exIds[5], customValue: 45, restAfter: 15),
+          SessionExercise(exerciseId: exIds[0], customValue: 30, restAfter: 15),
         ],
       ),
     ];

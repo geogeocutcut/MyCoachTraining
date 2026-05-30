@@ -21,6 +21,8 @@ class AppColors {
   static const mobiliteBg = Color(0xFFEAF7EF);
   static const etirementColor = Color(0xFFE67E22);
   static const etirementBg = Color(0xFFFEF5EC);
+  static const cardioColor = Color.fromARGB(193, 182, 11, 5);
+  static const cardioBg = Color(0xFFFEF5EC);
   static const autreColor = Color(0xFF95A5A6);
   static const autreBg = Color(0xFFF2F3F4);
 }

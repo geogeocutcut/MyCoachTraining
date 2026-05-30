@@ -20,7 +20,6 @@ class _EditSessionScreenState extends State<EditSessionScreen> {
   late final TextEditingController _nameController;
   late final TextEditingController _descController;
   late int _rounds;
-  late int _restExercise;
   late int _restRound;
   late List<_SessionExRow> _rows;
   bool _saving = false;
@@ -32,7 +31,6 @@ class _EditSessionScreenState extends State<EditSessionScreen> {
     _nameController = TextEditingController(text: s.name);
     _descController = TextEditingController(text: s.description ?? '');
     _rounds = s.rounds;
-    _restExercise = s.restBetweenExercises;
     _restRound = s.restBetweenRounds;
     final store = context.read<DataStore>();
     _rows = s.exercises.map((se) {
@@ -43,6 +41,7 @@ class _EditSessionScreenState extends State<EditSessionScreen> {
         imagePath: ex?.imagePath,
         type: ex?.type ?? ExerciseType.duration,
         value: se.customValue,
+        restAfter: se.restAfter,
       );
     }).toList();
   }
@@ -72,6 +71,7 @@ class _EditSessionScreenState extends State<EditSessionScreen> {
             imagePath: ex.imagePath,
             type: ex.type,
             value: ex.value,
+            restAfter: 15,
           )));
     }
   }
@@ -90,11 +90,13 @@ class _EditSessionScreenState extends State<EditSessionScreen> {
           ? null
           : _descController.text.trim(),
       rounds: _rounds,
-      restBetweenExercises: _restExercise,
       restBetweenRounds: _restRound,
       exercises: _rows
-          .map((r) =>
-              SessionExercise(exerciseId: r.exerciseId, customValue: r.value))
+          .map((r) => SessionExercise(
+                exerciseId: r.exerciseId,
+                customValue: r.value,
+                restAfter: r.restAfter,
+              ))
           .toList(),
     );
     await context.read<DataStore>().updateSession(updated);
@@ -113,8 +115,8 @@ class _EditSessionScreenState extends State<EditSessionScreen> {
               child: const Text('Annuler')),
           TextButton(
             onPressed: () => Navigator.pop(context, true),
-            child:
-                const Text('Supprimer', style: TextStyle(color: Colors.red)),
+            child: const Text('Supprimer',
+                style: TextStyle(color: Colors.red)),
           ),
         ],
       ),
@@ -155,20 +157,56 @@ class _EditSessionScreenState extends State<EditSessionScreen> {
                 )),
                 const SizedBox(width: 10),
                 Expanded(
-                    child: _SmallNumberField(
-                  label: 'Repos exercices (s)',
-                  value: _restExercise,
-                  onChanged: (v) => setState(() => _restExercise = v),
-                  step: 5,
-                )),
-                const SizedBox(width: 10),
-                Expanded(
-                    child: _SmallNumberField(
-                  label: 'Repos tours (s)',
-                  value: _restRound,
-                  onChanged: (v) => setState(() => _restRound = v),
-                  step: 10,
-                )),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        'Repos tours',
+                        style: TextStyle(
+                            fontSize: 11,
+                            color: AppColors.textGrey,
+                            fontWeight: FontWeight.w500),
+                      ),
+                      const SizedBox(height: 4),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: TextFormField(
+                              initialValue: '$_restRound',
+                              keyboardType: TextInputType.number,
+                              textAlign: TextAlign.center,
+                              style: const TextStyle(fontWeight: FontWeight.bold),
+                              decoration: InputDecoration(
+                                filled: true,
+                                fillColor: Colors.white,
+                                contentPadding: const EdgeInsets.symmetric(
+                                    horizontal: 6, vertical: 10),
+                                border: OutlineInputBorder(
+                                    borderRadius: BorderRadius.circular(12)),
+                                enabledBorder: OutlineInputBorder(
+                                  borderRadius: BorderRadius.circular(12),
+                                  borderSide:
+                                      const BorderSide(color: AppColors.border),
+                                ),
+                                isDense: true,
+                              ),
+                              onChanged: (v) {
+                                final parsed = int.tryParse(v);
+                                if (parsed != null && parsed >= 0) {
+                                  _restRound = parsed;
+                                }
+                              },
+                            ),
+                          ),
+                          const SizedBox(width: 6),
+                          const Text('sec',
+                              style: TextStyle(
+                                  fontSize: 12, color: AppColors.textGrey)),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
               ],
             ),
             const SizedBox(height: 20),
@@ -198,6 +236,8 @@ class _EditSessionScreenState extends State<EditSessionScreen> {
                     onRemove: () => setState(() => _rows.removeAt(i)),
                     onValueChanged: (v) =>
                         setState(() => _rows[i].value = v),
+                    onRestChanged: (v) =>
+                        setState(() => _rows[i].restAfter = v),
                   ),
               ],
             ),
@@ -245,7 +285,7 @@ class _EditSessionScreenState extends State<EditSessionScreen> {
       );
 }
 
-// ── Reused local classes ──────────────────────────────────────────────────────
+// ── Local re-exports of shared classes from new_session_screen ────────────────
 
 class _SessionExRow {
   final String exerciseId;
@@ -253,6 +293,7 @@ class _SessionExRow {
   final String? imagePath;
   final ExerciseType type;
   int value;
+  int restAfter;
 
   _SessionExRow({
     required this.exerciseId,
@@ -260,6 +301,7 @@ class _SessionExRow {
     this.imagePath,
     required this.type,
     required this.value,
+    this.restAfter = 15,
   });
 }
 
@@ -267,12 +309,14 @@ class _SessionExerciseTile extends StatelessWidget {
   final _SessionExRow row;
   final VoidCallback onRemove;
   final ValueChanged<int> onValueChanged;
+  final ValueChanged<int> onRestChanged;
 
   const _SessionExerciseTile({
     super.key,
     required this.row,
     required this.onRemove,
     required this.onValueChanged,
+    required this.onRestChanged,
   });
 
   @override
@@ -280,71 +324,121 @@ class _SessionExerciseTile extends StatelessWidget {
     return Card(
       margin: const EdgeInsets.only(bottom: 8),
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-        child: Row(
+        padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
+        child: Column(
           children: [
-            const Icon(Icons.drag_handle, color: AppColors.textGrey),
-            const SizedBox(width: 8),
-            Container(
-              width: 40,
-              height: 40,
-              decoration: BoxDecoration(
-                color: AppColors.border,
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: const Icon(Icons.fitness_center,
-                  color: AppColors.textGrey, size: 20),
-            ),
-            const SizedBox(width: 10),
-            Expanded(
-              child: Text(row.name,
-                  style: const TextStyle(
-                      fontWeight: FontWeight.w600, fontSize: 14)),
-            ),
-            Icon(
-              row.type == ExerciseType.duration
-                  ? Icons.timer_outlined
-                  : Icons.repeat,
-              size: 15,
-              color: AppColors.textGrey,
-            ),
-            const SizedBox(width: 4),
-            SizedBox(
-              width: 52,
-              child: TextFormField(
-                initialValue: '${row.value}',
-                keyboardType: TextInputType.number,
-                textAlign: TextAlign.center,
-                style: const TextStyle(fontWeight: FontWeight.bold),
-                decoration: InputDecoration(
-                  contentPadding:
-                      const EdgeInsets.symmetric(horizontal: 6, vertical: 8),
-                  border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(8)),
-                  enabledBorder: OutlineInputBorder(
+            Row(
+              children: [
+                const Icon(Icons.drag_handle, color: AppColors.textGrey),
+                const SizedBox(width: 8),
+                Container(
+                  width: 40,
+                  height: 40,
+                  decoration: BoxDecoration(
+                    color: AppColors.border,
                     borderRadius: BorderRadius.circular(8),
-                    borderSide: const BorderSide(color: AppColors.border),
                   ),
-                  isDense: true,
+                  child: const Icon(Icons.fitness_center,
+                      color: AppColors.textGrey, size: 20),
                 ),
-                onChanged: (v) {
-                  final parsed = int.tryParse(v);
-                  if (parsed != null && parsed > 0) onValueChanged(parsed);
-                },
-              ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(row.name,
+                      style: const TextStyle(
+                          fontWeight: FontWeight.w600, fontSize: 14)),
+                ),
+                Icon(
+                  row.type == ExerciseType.duration
+                      ? Icons.timer_outlined
+                      : Icons.repeat,
+                  size: 15,
+                  color: AppColors.textGrey,
+                ),
+                const SizedBox(width: 4),
+                SizedBox(
+                  width: 52,
+                  child: TextFormField(
+                    initialValue: '${row.value}',
+                    keyboardType: TextInputType.number,
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(fontWeight: FontWeight.bold),
+                    decoration: InputDecoration(
+                      contentPadding: const EdgeInsets.symmetric(
+                          horizontal: 6, vertical: 8),
+                      border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(8)),
+                      enabledBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(8),
+                        borderSide:
+                            const BorderSide(color: AppColors.border),
+                      ),
+                      isDense: true,
+                    ),
+                    onChanged: (v) {
+                      final parsed = int.tryParse(v);
+                      if (parsed != null && parsed > 0) onValueChanged(parsed);
+                    },
+                  ),
+                ),
+                const SizedBox(width: 4),
+                Text(
+                  row.type == ExerciseType.duration ? 'sec' : 'reps',
+                  style: const TextStyle(
+                      fontSize: 12, color: AppColors.textGrey),
+                ),
+                const SizedBox(width: 4),
+                IconButton(
+                  onPressed: onRemove,
+                  icon: const Icon(Icons.close,
+                      color: AppColors.textGrey, size: 18),
+                  padding: EdgeInsets.zero,
+                  constraints: const BoxConstraints(),
+                ),
+              ],
             ),
-            const SizedBox(width: 4),
-            Text(
-              row.type == ExerciseType.duration ? 'sec' : 'reps',
-              style: const TextStyle(fontSize: 12, color: AppColors.textGrey),
-            ),
-            const SizedBox(width: 4),
-            IconButton(
-              onPressed: onRemove,
-              icon: const Icon(Icons.close,
-                  color: AppColors.textGrey, size: 18),
-              padding: EdgeInsets.zero,
-              constraints: const BoxConstraints(),
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                const SizedBox(width: 58),
+                const Icon(Icons.pause_circle_outline,
+                    size: 14, color: AppColors.textGrey),
+                const SizedBox(width: 6),
+                const Text('Repos après :',
+                    style: TextStyle(
+                        fontSize: 12, color: AppColors.textGrey)),
+                const SizedBox(width: 8),
+                SizedBox(
+                  width: 52,
+                  child: TextFormField(
+                    initialValue: '${row.restAfter}',
+                    keyboardType: TextInputType.number,
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(
+                        fontWeight: FontWeight.bold, fontSize: 13),
+                    decoration: InputDecoration(
+                      contentPadding: const EdgeInsets.symmetric(
+                          horizontal: 6, vertical: 6),
+                      border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(8)),
+                      enabledBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(8),
+                        borderSide:
+                            const BorderSide(color: AppColors.border),
+                      ),
+                      isDense: true,
+                    ),
+                    onChanged: (v) {
+                      final parsed = int.tryParse(v);
+                      if (parsed != null && parsed >= 0)
+                        onRestChanged(parsed);
+                    },
+                  ),
+                ),
+                const SizedBox(width: 6),
+                const Text('sec',
+                    style: TextStyle(
+                        fontSize: 12, color: AppColors.textGrey)),
+              ],
             ),
           ],
         ),
@@ -461,7 +555,8 @@ class _ExercisePickerState extends State<_ExercisePicker> {
             child: TextField(
               onChanged: (v) => setState(() => _query = v),
               decoration: const InputDecoration(
-                prefixIcon: Icon(Icons.search, color: AppColors.textGrey),
+                prefixIcon:
+                    Icon(Icons.search, color: AppColors.textGrey),
                 hintText: 'Rechercher...',
               ),
             ),

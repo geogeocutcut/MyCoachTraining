@@ -18,7 +18,6 @@ class _NewSessionScreenState extends State<NewSessionScreen> {
   final _nameController = TextEditingController();
   final _descController = TextEditingController();
   int _rounds = 1;
-  int _restExercise = 15;
   int _restRound = 60;
   final List<_SessionExRow> _rows = [];
   bool _saving = false;
@@ -41,6 +40,7 @@ class _NewSessionScreenState extends State<NewSessionScreen> {
             imagePath: ex.imagePath,
             type: ex.type,
             value: ex.value,
+            restAfter: 15,
           )));
     }
   }
@@ -60,11 +60,13 @@ class _NewSessionScreenState extends State<NewSessionScreen> {
           ? null
           : _descController.text.trim(),
       rounds: _rounds,
-      restBetweenExercises: _restExercise,
       restBetweenRounds: _restRound,
       exercises: _rows
-          .map((r) =>
-              SessionExercise(exerciseId: r.exerciseId, customValue: r.value))
+          .map((r) => SessionExercise(
+                exerciseId: r.exerciseId,
+                customValue: r.value,
+                restAfter: r.restAfter,
+              ))
           .toList(),
     );
     await store.addSession(session);
@@ -83,9 +85,7 @@ class _NewSessionScreenState extends State<NewSessionScreen> {
     return Scaffold(
       backgroundColor: AppColors.background,
       appBar: AppBar(
-        leading: BackButton(
-          onPressed: () => Navigator.pop(context),
-        ),
+        leading: BackButton(onPressed: () => Navigator.pop(context)),
         title: const Text('Nouvelle séance'),
       ),
       body: SingleChildScrollView(
@@ -119,20 +119,56 @@ class _NewSessionScreenState extends State<NewSessionScreen> {
                 )),
                 const SizedBox(width: 10),
                 Expanded(
-                    child: _SmallNumberField(
-                  label: 'Repos exercices (s)',
-                  value: _restExercise,
-                  onChanged: (v) => setState(() => _restExercise = v),
-                  step: 5,
-                )),
-                const SizedBox(width: 10),
-                Expanded(
-                    child: _SmallNumberField(
-                  label: 'Repos tours (s)',
-                  value: _restRound,
-                  onChanged: (v) => setState(() => _restRound = v),
-                  step: 10,
-                )),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        'Repos tours',
+                        style: TextStyle(
+                            fontSize: 11,
+                            color: AppColors.textGrey,
+                            fontWeight: FontWeight.w500),
+                      ),
+                      const SizedBox(height: 4),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: TextFormField(
+                              initialValue: '$_restRound',
+                              keyboardType: TextInputType.number,
+                              textAlign: TextAlign.center,
+                              style: const TextStyle(fontWeight: FontWeight.bold),
+                              decoration: InputDecoration(
+                                filled: true,
+                                fillColor: Colors.white,
+                                contentPadding: const EdgeInsets.symmetric(
+                                    horizontal: 6, vertical: 10),
+                                border: OutlineInputBorder(
+                                    borderRadius: BorderRadius.circular(12)),
+                                enabledBorder: OutlineInputBorder(
+                                  borderRadius: BorderRadius.circular(12),
+                                  borderSide:
+                                      const BorderSide(color: AppColors.border),
+                                ),
+                                isDense: true,
+                              ),
+                              onChanged: (v) {
+                                final parsed = int.tryParse(v);
+                                if (parsed != null && parsed >= 0) {
+                                  _restRound = parsed;
+                                }
+                              },
+                            ),
+                          ),
+                          const SizedBox(width: 6),
+                          const Text('sec',
+                              style: TextStyle(
+                                  fontSize: 12, color: AppColors.textGrey)),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
               ],
             ),
             const SizedBox(height: 20),
@@ -162,6 +198,8 @@ class _NewSessionScreenState extends State<NewSessionScreen> {
                     onRemove: () => setState(() => _rows.removeAt(i)),
                     onValueChanged: (v) =>
                         setState(() => _rows[i].value = v),
+                    onRestChanged: (v) =>
+                        setState(() => _rows[i].restAfter = v),
                   ),
               ],
             ),
@@ -194,12 +232,15 @@ class _NewSessionScreenState extends State<NewSessionScreen> {
       );
 }
 
+// ── Shared data class ─────────────────────────────────────────────────────────
+
 class _SessionExRow {
   final String exerciseId;
   final String name;
   final String? imagePath;
   final ExerciseType type;
   int value;
+  int restAfter;
 
   _SessionExRow({
     required this.exerciseId,
@@ -207,19 +248,24 @@ class _SessionExRow {
     this.imagePath,
     required this.type,
     required this.value,
+    this.restAfter = 15,
   });
 }
+
+// ── Exercise tile with per-exercise rest ──────────────────────────────────────
 
 class _SessionExerciseTile extends StatelessWidget {
   final _SessionExRow row;
   final VoidCallback onRemove;
   final ValueChanged<int> onValueChanged;
+  final ValueChanged<int> onRestChanged;
 
   const _SessionExerciseTile({
     super.key,
     required this.row,
     required this.onRemove,
     required this.onValueChanged,
+    required this.onRestChanged,
   });
 
   @override
@@ -227,88 +273,132 @@ class _SessionExerciseTile extends StatelessWidget {
     return Card(
       margin: const EdgeInsets.only(bottom: 8),
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-        child: Row(
+        padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
+        child: Column(
           children: [
-            const Icon(Icons.drag_handle, color: AppColors.textGrey),
-            const SizedBox(width: 8),
-            if (row.imagePath != null)
-              ClipRRect(
-                borderRadius: BorderRadius.circular(8),
-                child: Image.network(row.imagePath!,
-                    width: 40, height: 40, fit: BoxFit.cover,
-                    errorBuilder: (_, __, ___) => _placeholder()),
-              )
-            else
-              _placeholder(),
-            const SizedBox(width: 10),
-            Expanded(
-              child: Text(row.name,
-                  style: const TextStyle(
-                      fontWeight: FontWeight.w600, fontSize: 14)),
-            ),
-            Icon(
-              row.type == ExerciseType.duration
-                  ? Icons.timer_outlined
-                  : Icons.repeat,
-              size: 15,
-              color: AppColors.textGrey,
-            ),
-            const SizedBox(width: 4),
-            SizedBox(
-              width: 52,
-              child: TextFormField(
-                initialValue: '${row.value}',
-                keyboardType: TextInputType.number,
-                textAlign: TextAlign.center,
-                style: const TextStyle(fontWeight: FontWeight.bold),
-                decoration: InputDecoration(
-                  contentPadding: const EdgeInsets.symmetric(
-                      horizontal: 6, vertical: 8),
-                  border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(8)),
-                  enabledBorder: OutlineInputBorder(
+            // Top row: drag / thumbnail / name / value / remove
+            Row(
+              children: [
+                const Icon(Icons.drag_handle, color: AppColors.textGrey),
+                const SizedBox(width: 8),
+                Container(
+                  width: 40,
+                  height: 40,
+                  decoration: BoxDecoration(
+                    color: AppColors.border,
                     borderRadius: BorderRadius.circular(8),
-                    borderSide: const BorderSide(color: AppColors.border),
                   ),
-                  isDense: true,
+                  child: const Icon(Icons.fitness_center,
+                      color: AppColors.textGrey, size: 20),
                 ),
-                onChanged: (v) {
-                  final parsed = int.tryParse(v);
-                  if (parsed != null && parsed > 0) onValueChanged(parsed);
-                },
-              ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(row.name,
+                      style: const TextStyle(
+                          fontWeight: FontWeight.w600, fontSize: 14)),
+                ),
+                Icon(
+                  row.type == ExerciseType.duration
+                      ? Icons.timer_outlined
+                      : Icons.repeat,
+                  size: 15,
+                  color: AppColors.textGrey,
+                ),
+                const SizedBox(width: 4),
+                // Exercise value field
+                SizedBox(
+                  width: 52,
+                  child: TextFormField(
+                    initialValue: '${row.value}',
+                    keyboardType: TextInputType.number,
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(fontWeight: FontWeight.bold),
+                    decoration: InputDecoration(
+                      contentPadding: const EdgeInsets.symmetric(
+                          horizontal: 6, vertical: 8),
+                      border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(8)),
+                      enabledBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(8),
+                        borderSide:
+                            const BorderSide(color: AppColors.border),
+                      ),
+                      isDense: true,
+                    ),
+                    onChanged: (v) {
+                      final parsed = int.tryParse(v);
+                      if (parsed != null && parsed > 0) onValueChanged(parsed);
+                    },
+                  ),
+                ),
+                const SizedBox(width: 4),
+                Text(
+                  row.type == ExerciseType.duration ? 'sec' : 'reps',
+                  style: const TextStyle(
+                      fontSize: 12, color: AppColors.textGrey),
+                ),
+                const SizedBox(width: 4),
+                IconButton(
+                  onPressed: onRemove,
+                  icon: const Icon(Icons.close,
+                      color: AppColors.textGrey, size: 18),
+                  padding: EdgeInsets.zero,
+                  constraints: const BoxConstraints(),
+                ),
+              ],
             ),
-            const SizedBox(width: 4),
-            Text(
-              row.type == ExerciseType.duration ? 'sec' : 'reps',
-              style: const TextStyle(
-                  fontSize: 12, color: AppColors.textGrey),
-            ),
-            const SizedBox(width: 4),
-            IconButton(
-              onPressed: onRemove,
-              icon: const Icon(Icons.close, color: AppColors.textGrey, size: 18),
-              padding: EdgeInsets.zero,
-              constraints: const BoxConstraints(),
+            // Rest row
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                const SizedBox(width: 58), // align with name
+                const Icon(Icons.pause_circle_outline,
+                    size: 14, color: AppColors.textGrey),
+                const SizedBox(width: 6),
+                const Text('Repos après :',
+                    style: TextStyle(
+                        fontSize: 12, color: AppColors.textGrey)),
+                const SizedBox(width: 8),
+                SizedBox(
+                  width: 52,
+                  child: TextFormField(
+                    initialValue: '${row.restAfter}',
+                    keyboardType: TextInputType.number,
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(
+                        fontWeight: FontWeight.bold, fontSize: 13),
+                    decoration: InputDecoration(
+                      contentPadding: const EdgeInsets.symmetric(
+                          horizontal: 6, vertical: 6),
+                      border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(8)),
+                      enabledBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(8),
+                        borderSide: const BorderSide(
+                            color: AppColors.border),
+                      ),
+                      isDense: true,
+                    ),
+                    onChanged: (v) {
+                      final parsed = int.tryParse(v);
+                      if (parsed != null && parsed >= 0) onRestChanged(parsed);
+                    },
+                  ),
+                ),
+                const SizedBox(width: 6),
+                const Text('sec',
+                    style: TextStyle(
+                        fontSize: 12, color: AppColors.textGrey)),
+              ],
             ),
           ],
         ),
       ),
     );
   }
-
-  Widget _placeholder() => Container(
-        width: 40,
-        height: 40,
-        decoration: BoxDecoration(
-          color: AppColors.border,
-          borderRadius: BorderRadius.circular(8),
-        ),
-        child: const Icon(Icons.fitness_center,
-            color: AppColors.textGrey, size: 20),
-      );
 }
+
+// ── Shared widgets (also used by edit_session_screen) ─────────────────────────
 
 class _SmallNumberField extends StatelessWidget {
   final String label;
@@ -351,7 +441,8 @@ class _SmallNumberField extends StatelessWidget {
                 },
                 icon: const Icon(Icons.remove, size: 16),
                 padding: EdgeInsets.zero,
-                constraints: const BoxConstraints(minWidth: 32, minHeight: 40),
+                constraints:
+                    const BoxConstraints(minWidth: 32, minHeight: 40),
               ),
               Text('$value',
                   style: const TextStyle(
@@ -360,7 +451,8 @@ class _SmallNumberField extends StatelessWidget {
                 onPressed: () => onChanged(value + step),
                 icon: const Icon(Icons.add, size: 16),
                 padding: EdgeInsets.zero,
-                constraints: const BoxConstraints(minWidth: 32, minHeight: 40),
+                constraints:
+                    const BoxConstraints(minWidth: 32, minHeight: 40),
               ),
             ],
           ),
@@ -416,7 +508,8 @@ class _ExercisePickerState extends State<_ExercisePicker> {
             child: TextField(
               onChanged: (v) => setState(() => _query = v),
               decoration: const InputDecoration(
-                prefixIcon: Icon(Icons.search, color: AppColors.textGrey),
+                prefixIcon:
+                    Icon(Icons.search, color: AppColors.textGrey),
                 hintText: 'Rechercher...',
               ),
             ),

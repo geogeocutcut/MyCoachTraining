@@ -6,9 +6,12 @@ import 'dart:typed_data';
 import 'package:audioplayers/audioplayers.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+import 'package:wakelock_plus/wakelock_plus.dart';
 import '../models/exercise.dart';
 import '../models/session.dart';
 import '../services/data_store.dart';
+import '../services/workout_notification_service.dart';
 import '../theme/app_theme.dart';
 
 enum _Phase { prepare, active, rest, roundRest, done }
@@ -25,16 +28,15 @@ class SessionPlayerScreen extends StatefulWidget {
 }
 
 class _SessionPlayerScreenState extends State<SessionPlayerScreen>
-    with TickerProviderStateMixin {
+    with TickerProviderStateMixin, WidgetsBindingObserver {
   static const _prepareSeconds = 5;
 
   late int _currentExerciseIndex;
   late int _currentRound;
   late _Phase _phase;
-  late int _remaining;
+  late int _remaining; // seconds or reps
+  late int _totalSeconds;  // total for current phase, drives circle
   bool _paused = false;
-
-  /// Tracks total elapsed seconds for the completion record.
   int _elapsedSeconds = 0;
   Timer? _elapsedTimer;
   late _BipPlayer _bip;
@@ -69,6 +71,25 @@ class _SessionPlayerScreenState extends State<SessionPlayerScreen>
     _circleController = AnimationController(vsync: this);
     _bip = _BipPlayer();
     _startElapsedTimer();
+    WidgetsBinding.instance.addObserver(this);
+    WakelockPlus.enable();
+    // Listen to notification button taps (pause / resume / stop)
+    FlutterLocalNotificationsPlugin().initialize(
+      const InitializationSettings(
+        android: AndroidInitializationSettings('@drawable/ic_notification'),
+        iOS: DarwinInitializationSettings(),
+      ),
+      onDidReceiveNotificationResponse: (details) {
+        final payload = details.actionId;
+        if (payload == WorkoutNotificationService.actionPause ||
+            payload == WorkoutNotificationService.actionResume) {
+          if (mounted) _togglePause();
+        } else if (payload == WorkoutNotificationService.actionStop) {
+          if (mounted) Navigator.pop(context);
+        }
+      },
+    );
+    WorkoutNotificationService.init().then((_) => _updateNotification());
     _startPrepare();
   }
 
@@ -78,6 +99,9 @@ class _SessionPlayerScreenState extends State<SessionPlayerScreen>
     _elapsedTimer?.cancel();
     _circleController.dispose();
     _bip.dispose();
+    WidgetsBinding.instance.removeObserver(this);
+    WorkoutNotificationService.dismiss();
+    WakelockPlus.disable();
     super.dispose();
   }
 
@@ -87,21 +111,53 @@ class _SessionPlayerScreenState extends State<SessionPlayerScreen>
     });
   }
 
+  void _updateNotification() {
+    if (_phase == _Phase.done) return;
+    final ex = _currentExercise;
+    WorkoutNotificationService.show(
+      sessionName: session.name,
+      exerciseName: _phase == _Phase.prepare
+          ? 'Préparation...'
+          : _phase == _Phase.rest || _phase == _Phase.roundRest
+              ? 'Repos'
+              : ex?.name ?? '',
+      round: _currentRound,
+      totalRounds: session.rounds,
+      exerciseIndex: _currentExerciseIndex,
+      totalExercises: session.exercises.length,
+      paused: _paused,
+    );
+  }
+
+  Future<void> _saveCompletion() async {
+    final completion = SessionCompletion(
+      id: store.newId(),
+      sessionId: session.id,
+      sessionName: session.name,
+      completedAt: DateTime.now(),
+      durationSeconds: _elapsedSeconds,
+      roundsDone: session.rounds,
+      exerciseCount: session.exercises.length,
+    );
+    await store.recordCompletion(completion);
+  }
+
   void _startPrepare() {
     _currentExerciseIndex = 0;
     _currentRound = 1;
     _phase = _Phase.prepare;
     _remaining = _prepareSeconds;
+    _totalSeconds = _prepareSeconds;
     _startCircle(_prepareSeconds);
     _startTimer();
   }
 
   void _startCircle(int totalSeconds, {bool infinite = false}) {
+    _totalSeconds = totalSeconds;
+    // AnimationController is kept only for pause/resume continuity; 
+    // the circle progress is now driven by _remaining/_totalSeconds.
     _circleController.stop();
     _circleController.reset();
-    if (infinite) return;
-    _circleController.duration = Duration(seconds: totalSeconds);
-    _circleController.forward();
   }
 
   void _startTimer() {
@@ -109,9 +165,7 @@ class _SessionPlayerScreenState extends State<SessionPlayerScreen>
     _timer = Timer.periodic(const Duration(seconds: 1), (_) {
       if (_paused) return;
       setState(() {
-        if (_phase == _Phase.prepare ||
-            _phase == _Phase.rest ||
-            _phase == _Phase.roundRest) {
+        if (_phase == _Phase.prepare || _phase == _Phase.rest || _phase == _Phase.roundRest) {
           _remaining--;
           if (_remaining <= 0) {
             _bip.playEnd();
@@ -121,6 +175,7 @@ class _SessionPlayerScreenState extends State<SessionPlayerScreen>
           }
         }
       });
+      _updateNotification();
     });
   }
 
@@ -128,6 +183,7 @@ class _SessionPlayerScreenState extends State<SessionPlayerScreen>
     if (_phase == _Phase.prepare) {
       _beginActiveExercise();
     } else if (_phase == _Phase.active) {
+      // shouldn't be called for reps; only duration
       _beginRest();
     } else if (_phase == _Phase.rest) {
       _nextExerciseOrRound();
@@ -143,6 +199,7 @@ class _SessionPlayerScreenState extends State<SessionPlayerScreen>
     final ex = _currentExercise;
     _phase = _Phase.active;
     _remaining = se.customValue;
+    _totalSeconds = se.customValue;
     if (ex?.type == ExerciseType.duration) {
       _startCircle(se.customValue);
       _timer?.cancel();
@@ -157,8 +214,10 @@ class _SessionPlayerScreenState extends State<SessionPlayerScreen>
             _bip.playTick();
           }
         });
+        _updateNotification();
       });
     } else {
+      // Repetition: circle is static; user taps "Terminé"
       _circleController.stop();
       _circleController.reset();
       _timer?.cancel();
@@ -172,18 +231,26 @@ class _SessionPlayerScreenState extends State<SessionPlayerScreen>
         _timer?.cancel();
         _elapsedTimer?.cancel();
         _circleController.stop();
-        _saveCompletion();
+        WorkoutNotificationService.dismiss();
+        _saveCompletion();   // ← persist history + update calendar
         setState(() {});
         return;
       }
+      // Between rounds
       _phase = _Phase.roundRest;
       _remaining = session.restBetweenRounds;
+      _totalSeconds = session.restBetweenRounds;
       _startCircle(session.restBetweenRounds);
       _startTimer();
     } else {
+      if (_currentSE.restAfter <= 0) {
+        _nextExerciseOrRound();
+        return;
+      }
       _phase = _Phase.rest;
-      _remaining = session.restBetweenExercises;
-      _startCircle(session.restBetweenExercises);
+      _remaining = _currentSE.restAfter;
+      _totalSeconds = _currentSE.restAfter;
+      _startCircle(_currentSE.restAfter);
       _startTimer();
     }
     setState(() {});
@@ -210,26 +277,8 @@ class _SessionPlayerScreenState extends State<SessionPlayerScreen>
   void _togglePause() {
     setState(() {
       _paused = !_paused;
-      if (_paused) {
-        _circleController.stop();
-      } else {
-        _circleController.forward();
-      }
     });
-  }
-
-  /// Persists a [SessionCompletion] record in the store.
-  Future<void> _saveCompletion() async {
-    final completion = SessionCompletion(
-      id: store.newId(),
-      sessionId: session.id,
-      sessionName: session.name,
-      completedAt: DateTime.now(),
-      durationSeconds: _elapsedSeconds,
-      roundsDone: session.rounds,
-      exerciseCount: session.exercises.length,
-    );
-    await store.recordCompletion(completion);
+    _updateNotification();
   }
 
   String _formatTime(int seconds) {
@@ -281,8 +330,7 @@ class _SessionPlayerScreenState extends State<SessionPlayerScreen>
           ),
           Text(
             'Tour $_currentRound/${session.rounds}',
-            style:
-                const TextStyle(fontSize: 13, color: AppColors.textGrey),
+            style: const TextStyle(fontSize: 13, color: AppColors.textGrey),
           ),
           IconButton(
             onPressed: _skipCurrent,
@@ -294,8 +342,8 @@ class _SessionPlayerScreenState extends State<SessionPlayerScreen>
   }
 
   Widget _buildProgressBar() {
-    final total = session.exercises.length;
-    final done = _currentExerciseIndex;
+    final total = session.exercises.length * session.rounds;
+    final done = (_currentRound-1)*session.exercises.length + _currentExerciseIndex+1;
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
       child: LinearProgressIndicator(
@@ -317,7 +365,7 @@ class _SessionPlayerScreenState extends State<SessionPlayerScreen>
         if (ex?.type == ExerciseType.repetitions) {
           return _buildRepsView(ex!);
         }
-        return _buildDurationView(ex);
+        return _buildTimerView(ex);
       case _Phase.rest:
         return _buildRestView(
           title: 'REPOS',
@@ -327,13 +375,13 @@ class _SessionPlayerScreenState extends State<SessionPlayerScreen>
         );
       case _Phase.roundRest:
         return _buildRestView(
-          title: 'REPOS',
+          title: 'REPOS ENTRE TOURS',
           subtitle: 'Prochain tour',
           nextName: 'Tour ${_currentRound + 1}/${session.rounds}',
-          color: Colors.indigo,
+          color: AppColors.orange,
         );
       case _Phase.done:
-        return const SizedBox();
+        return const SizedBox.shrink();
     }
   }
 
@@ -342,40 +390,64 @@ class _SessionPlayerScreenState extends State<SessionPlayerScreen>
     return Column(
       mainAxisAlignment: MainAxisAlignment.center,
       children: [
-        const Text('Préparez-vous',
-            style: TextStyle(
-                fontSize: 22,
-                fontWeight: FontWeight.bold,
-                color: AppColors.textDark)),
-        const SizedBox(height: 8),
-        Text(ex?.name ?? '',
-            style:
-                const TextStyle(fontSize: 16, color: AppColors.textGrey)),
-        const SizedBox(height: 32),
+        const Text(
+          'PRÉPAREZ-VOUS',
+          style: TextStyle(
+              color: AppColors.teal,
+              fontWeight: FontWeight.bold,
+              letterSpacing: 2,
+              fontSize: 14),
+        ),
+        const SizedBox(height: 24),
         _CircleTimer(
-          controller: _circleController,
-          label: '',
-          value: '$_remaining',
+          progress: _totalSeconds > 0 ? _remaining / _totalSeconds : 0,
+          label: 'DÉBUT DANS',
+          value: _formatTime(_remaining),
           color: AppColors.teal,
-          size: 140,
+        ),
+        const SizedBox(height: 24),
+        Text(
+          ex?.name ?? '',
+          style: const TextStyle(
+              fontSize: 20,
+              fontWeight: FontWeight.bold,
+              color: AppColors.textDark),
         ),
       ],
     );
   }
 
-  Widget _buildDurationView(Exercise? ex) {
+  Widget _buildTimerView(Exercise? ex) {
     return SingleChildScrollView(
       child: Column(
         children: [
-          if (ex?.imagePath != null && File(ex!.imagePath!).existsSync())
-            SizedBox(
-              height: 180,
-              width: double.infinity,
-              child: Image.file(File(ex.imagePath!), fit: BoxFit.cover),
-            ),
+          // Fixed-height image zone — always the same height whether or not
+          // there is an image, so the timer always sits at the same position.
+          SizedBox(
+            height: 220,
+            width: double.infinity,
+            child: ex?.imagePath != null && File(ex!.imagePath!).existsSync()
+                ? ClipRRect(
+                    child: Image.file(
+                      File(ex.imagePath!),
+                      fit: BoxFit.cover,
+                      width: double.infinity,
+                      height: 220,
+                    ),
+                  )
+                : Container(
+                    color: AppColors.tealLight,
+                    child: const Icon(
+                      Icons.fitness_center,
+                      color: AppColors.teal,
+                      size: 64,
+                    ),
+                  ),
+          ),
           const SizedBox(height: 16),
           Text(
             ex?.name ?? '',
+            textAlign: TextAlign.center,
             style: const TextStyle(
                 fontSize: 22,
                 fontWeight: FontWeight.bold,
@@ -383,15 +455,15 @@ class _SessionPlayerScreenState extends State<SessionPlayerScreen>
           ),
           const SizedBox(height: 24),
           _CircleTimer(
-            controller: _circleController,
-            label: 'TEMPS',
+            progress: _totalSeconds > 0 ? _remaining / _totalSeconds : 0,
+            label: '',
             value: _formatTime(_remaining),
             color: AppColors.teal,
-            size: 200,
+            size: 180,
           ),
           if (ex?.instructions != null)
             Padding(
-              padding: const EdgeInsets.fromLTRB(24, 20, 24, 0),
+              padding: const EdgeInsets.fromLTRB(24, 16, 24, 0),
               child: Text(
                 ex!.instructions!,
                 textAlign: TextAlign.center,
@@ -408,12 +480,27 @@ class _SessionPlayerScreenState extends State<SessionPlayerScreen>
     return SingleChildScrollView(
       child: Column(
         children: [
-          if (ex.imagePath != null && File(ex.imagePath!).existsSync())
-            SizedBox(
-              height: 180,
-              width: double.infinity,
-              child: Image.file(File(ex.imagePath!), fit: BoxFit.cover),
-            ),
+          SizedBox(
+            height: 220,
+            width: double.infinity,
+            child: ex.imagePath != null && File(ex.imagePath!).existsSync()
+                ? ClipRRect(
+                    child: Image.file(
+                      File(ex.imagePath!),
+                      fit: BoxFit.cover,
+                      width: double.infinity,
+                      height: 220,
+                    ),
+                  )
+                : Container(
+                    color: AppColors.tealLight,
+                    child: const Icon(
+                      Icons.fitness_center,
+                      color: AppColors.teal,
+                      size: 64,
+                    ),
+                  ),
+          ),
           const SizedBox(height: 16),
           Text(
             ex.name,
@@ -491,7 +578,7 @@ class _SessionPlayerScreenState extends State<SessionPlayerScreen>
       mainAxisAlignment: MainAxisAlignment.center,
       children: [
         _CircleTimer(
-          controller: _circleController,
+          progress: _totalSeconds > 0 ? _remaining / _totalSeconds : 0,
           label: title,
           value: _formatTime(_remaining),
           color: color,
@@ -499,8 +586,8 @@ class _SessionPlayerScreenState extends State<SessionPlayerScreen>
         ),
         const SizedBox(height: 24),
         Text(subtitle,
-            style: const TextStyle(
-                color: AppColors.textGrey, fontSize: 14)),
+            style:
+                const TextStyle(color: AppColors.textGrey, fontSize: 14)),
         const SizedBox(height: 4),
         Text(
           nextName,
@@ -528,20 +615,14 @@ class _SessionPlayerScreenState extends State<SessionPlayerScreen>
           minimumSize: const Size(double.infinity, 52),
           side: const BorderSide(color: AppColors.border),
           foregroundColor: AppColors.textDark,
-          shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(14)),
+          shape:
+              RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
         ),
       ),
     );
   }
 
   Widget _buildDoneScreen() {
-    final minutes = _elapsedSeconds ~/ 60;
-    final seconds = _elapsedSeconds % 60;
-    final durationLabel = minutes > 0
-        ? '${minutes}min${seconds > 0 ? ' ${seconds}s' : ''}'
-        : '${seconds}s';
-
     return Scaffold(
       backgroundColor: Colors.white,
       body: SafeArea(
@@ -576,25 +657,6 @@ class _SessionPlayerScreenState extends State<SessionPlayerScreen>
                   style: const TextStyle(
                       color: AppColors.textGrey, fontSize: 15, height: 1.5),
                 ),
-                const SizedBox(height: 20),
-                // Stats row
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    _StatChip(
-                      icon: Icons.timer_outlined,
-                      label: durationLabel,
-                      color: AppColors.teal,
-                    ),
-                    const SizedBox(width: 12),
-                    _StatChip(
-                      icon: Icons.fitness_center,
-                      label:
-                          '${session.exercises.length} exercice${session.exercises.length > 1 ? 's' : ''}',
-                      color: AppColors.orange,
-                    ),
-                  ],
-                ),
                 const SizedBox(height: 40),
                 ElevatedButton(
                   onPressed: () => Navigator.pop(context),
@@ -623,8 +685,8 @@ class _SessionPlayerScreenState extends State<SessionPlayerScreen>
               child: const Text('Continuer')),
           TextButton(
             onPressed: () => Navigator.pop(context, true),
-            child:
-                const Text('Quitter', style: TextStyle(color: Colors.red)),
+            child: const Text('Quitter',
+                style: TextStyle(color: Colors.red)),
           ),
         ],
       ),
@@ -633,47 +695,15 @@ class _SessionPlayerScreenState extends State<SessionPlayerScreen>
   }
 }
 
-class _StatChip extends StatelessWidget {
-  final IconData icon;
-  final String label;
-  final Color color;
-  const _StatChip(
-      {required this.icon, required this.label, required this.color});
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-      decoration: BoxDecoration(
-        color: color.withOpacity(0.1),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: color.withOpacity(0.3)),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(icon, size: 16, color: color),
-          const SizedBox(width: 6),
-          Text(label,
-              style: TextStyle(
-                  color: color,
-                  fontWeight: FontWeight.w600,
-                  fontSize: 14)),
-        ],
-      ),
-    );
-  }
-}
-
 class _CircleTimer extends StatelessWidget {
-  final AnimationController controller;
+  final double progress; // 0.0 (empty) → 1.0 (full)
   final String label;
   final String value;
   final Color color;
   final double size;
 
   const _CircleTimer({
-    required this.controller,
+    required this.progress,
     required this.label,
     required this.value,
     required this.color,
@@ -682,25 +712,22 @@ class _CircleTimer extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return AnimatedBuilder(
-      animation: controller,
-      builder: (_, __) {
-        return SizedBox(
-          width: size,
-          height: size,
-          child: Stack(
-            alignment: Alignment.center,
-            children: [
-              SizedBox(
-                width: size,
-                height: size,
-                child: CircularProgressIndicator(
-                  value: 1 - controller.value,
-                  strokeWidth: 6,
-                  backgroundColor: color.withOpacity(0.15),
-                  color: color,
-                ),
-              ),
+    return SizedBox(
+      width: size,
+      height: size,
+      child: Stack(
+        alignment: Alignment.center,
+        children: [
+          SizedBox(
+            width: size,
+            height: size,
+            child: CircularProgressIndicator(
+              value: progress,
+              strokeWidth: 6,
+              backgroundColor: color.withOpacity(0.15),
+              color: color,
+            ),
+          ),
               Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
@@ -726,81 +753,69 @@ class _CircleTimer extends StatelessWidget {
             ],
           ),
         );
-      },
-    );
   }
 }
 
 // ── Bip player ────────────────────────────────────────────────────────────────
-// Generates PCM WAV tones on the fly — no asset files needed.
 
 class _BipPlayer {
   final AudioPlayer _player = AudioPlayer();
 
-  /// Short tick bip: 880 Hz, 80 ms
-  Future<void> playTick() => _play(frequency: 880, durationMs: 80);
+  _BipPlayer() {
+    AudioPlayer.global.setAudioContext(
+      AudioContext(
+        iOS: AudioContextIOS(
+          category: AVAudioSessionCategory.playback,
+          options: {AVAudioSessionOptions.mixWithOthers},
+        ),
+        android: AudioContextAndroid(
+          isSpeakerphoneOn: false,
+          stayAwake: false,
+          contentType: AndroidContentType.sonification,
+          usageType: AndroidUsageType.assistanceSonification,
+          audioFocus: AndroidAudioFocus.gainTransientMayDuck,
+        ),
+      ),
+    );
+  }
 
-  /// End bip: 660 Hz, 400 ms
-  Future<void> playEnd() => _play(frequency: 660, durationMs: 400);
+  Future<void> playTick() => _play(frequency: 880, durationMs: 80);
+  Future<void> playEnd()  => _play(frequency: 660, durationMs: 400);
 
   Future<void> _play({required double frequency, required int durationMs}) async {
     try {
-      final bytes = _buildWav(frequency: frequency, durationMs: durationMs);
-      await _player.play(BytesSource(bytes), volume: 1.0);
-    } catch (_) {
-      // Silently ignore audio errors (e.g. emulator without audio)
-    }
+      await _player.play(BytesSource(_buildWav(frequency: frequency, durationMs: durationMs)), volume: 1.0);
+    } catch (_) {}
   }
 
-  /// Builds a minimal 16-bit mono PCM WAV in memory.
   Uint8List _buildWav({required double frequency, required int durationMs}) {
     const sampleRate = 44100;
-    const numChannels = 1;
-    const bitsPerSample = 16;
-
     final numSamples = (sampleRate * durationMs / 1000).round();
-    final dataSize = numSamples * numChannels * (bitsPerSample ~/ 8);
-    final fileSize = 44 + dataSize;
-
-    final buf = ByteData(fileSize);
-    int o = 0;
-
-    // RIFF header
+    final dataSize = numSamples * 2;
+    final buf = ByteData(44 + dataSize);
     buf.buffer.asUint8List(0, 4).setAll(0, 'RIFF'.codeUnits);
-    buf.setUint32(4, fileSize - 8, Endian.little);
+    buf.setUint32(4, 36 + dataSize, Endian.little);
     buf.buffer.asUint8List(8, 4).setAll(0, 'WAVE'.codeUnits);
-    // fmt chunk
     buf.buffer.asUint8List(12, 4).setAll(0, 'fmt '.codeUnits);
-    buf.setUint32(16, 16, Endian.little);      // chunk size
-    buf.setUint16(20, 1, Endian.little);       // PCM
-    buf.setUint16(22, numChannels, Endian.little);
+    buf.setUint32(16, 16, Endian.little);
+    buf.setUint16(20, 1, Endian.little);
+    buf.setUint16(22, 1, Endian.little);
     buf.setUint32(24, sampleRate, Endian.little);
-    buf.setUint32(28, sampleRate * numChannels * bitsPerSample ~/ 8, Endian.little);
-    buf.setUint16(32, numChannels * bitsPerSample ~/ 8, Endian.little);
-    buf.setUint16(34, bitsPerSample, Endian.little);
-    // data chunk
+    buf.setUint32(28, sampleRate * 2, Endian.little);
+    buf.setUint16(32, 2, Endian.little);
+    buf.setUint16(34, 16, Endian.little);
     buf.buffer.asUint8List(36, 4).setAll(0, 'data'.codeUnits);
     buf.setUint32(40, dataSize, Endian.little);
-
-    o = 44;
     for (int i = 0; i < numSamples; i++) {
-      // Sine wave with a short linear fade-out (last 20% of samples)
-      final fadeStart = (numSamples * 0.8).round();
-      final amplitude = i >= fadeStart
-          ? 28000.0 * (1.0 - (i - fadeStart) / (numSamples - fadeStart))
-          : 28000.0;
-      final sample =
-          (amplitude * math.sin(2 * math.pi * frequency * i / sampleRate))
-              .round()
-              .clamp(-32768, 32767);
-      buf.setInt16(o, sample, Endian.little);
-      o += 2;
+      final fade = i >= (numSamples * 0.8).round()
+          ? 1.0 - (i - numSamples * 0.8) / (numSamples * 0.2)
+          : 1.0;
+      final s = (28000.0 * fade * math.sin(2 * math.pi * frequency * i / sampleRate))
+          .round().clamp(-32768, 32767);
+      buf.setInt16(44 + i * 2, s, Endian.little);
     }
-
     return buf.buffer.asUint8List();
   }
 
-  void dispose() {
-    _player.dispose();
-  }
+  void dispose() => _player.dispose();
 }

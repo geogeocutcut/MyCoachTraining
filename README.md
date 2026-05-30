@@ -1,4 +1,4 @@
-# KinéTracker — Application Flutter
+# MyCoatchTraining — Application Flutter
 
 Application mobile de suivi des exercices de kinésithérapie, inspirée du Tabata Timer.
 

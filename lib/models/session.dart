@@ -2,22 +2,26 @@
 
 class SessionExercise {
   final String exerciseId;
-  int customValue;
+  int customValue;   // duration (s) or reps
+  int restAfter;     // rest after THIS exercise (s), overrides session default
 
   SessionExercise({
     required this.exerciseId,
     required this.customValue,
+    this.restAfter = 15,
   });
 
   Map<String, dynamic> toJson() => {
         'exerciseId': exerciseId,
         'customValue': customValue,
+        'restAfter': restAfter,
       };
 
   factory SessionExercise.fromJson(Map<String, dynamic> json) =>
       SessionExercise(
         exerciseId: json['exerciseId'],
         customValue: json['customValue'] ?? 30,
+        restAfter: json['restAfter'] ?? 15,
       );
 }
 
@@ -26,7 +30,6 @@ class Session {
   String name;
   String? description;
   int rounds;
-  int restBetweenExercises;
   int restBetweenRounds;
   List<SessionExercise> exercises;
 
@@ -35,7 +38,6 @@ class Session {
     required this.name,
     this.description,
     this.rounds = 1,
-    this.restBetweenExercises = 15,
     this.restBetweenRounds = 60,
     List<SessionExercise>? exercises,
   }) : exercises = exercises ?? [];
@@ -45,7 +47,6 @@ class Session {
         'name': name,
         'description': description,
         'rounds': rounds,
-        'restBetweenExercises': restBetweenExercises,
         'restBetweenRounds': restBetweenRounds,
         'exercises': exercises.map((e) => e.toJson()).toList(),
       };
@@ -55,7 +56,6 @@ class Session {
         name: json['name'],
         description: json['description'],
         rounds: json['rounds'] ?? 1,
-        restBetweenExercises: json['restBetweenExercises'] ?? 15,
         restBetweenRounds: json['restBetweenRounds'] ?? 60,
         exercises: (json['exercises'] as List<dynamic>?)
                 ?.map((e) => SessionExercise.fromJson(e))
@@ -70,7 +70,7 @@ class SessionCompletion {
   final String sessionId;
   final String sessionName;
   final DateTime completedAt;
-  final int durationSeconds; // total time elapsed
+  final int durationSeconds;
   final int roundsDone;
   final int exerciseCount;
 

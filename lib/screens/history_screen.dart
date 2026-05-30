@@ -260,8 +260,13 @@ class _HistoryScreenState extends State<HistoryScreen> {
     return '${m}min${s > 0 ? ' ${s}s' : ''}';
   }
 
-  DateTime _mondayOf(DateTime d) =>
-      d.subtract(Duration(days: d.weekday - 1));
+  DateTime _mondayOf(DateTime d) {
+    // 1. On calcule le jour du lundi
+    final mondayDate = d.subtract(Duration(days: d.weekday - 1));
+    
+    // 2. On reconstruit un DateTime à minuit pile (00:00:00)
+    return DateTime(mondayDate.year, mondayDate.month, mondayDate.day);
+  }
 }
 
 // ── Calendar grid ────────────────────────────────────────────────────────────

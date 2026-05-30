@@ -7,6 +7,7 @@ enum ExerciseCategory {
   renforcement,
   mobilite,
   etirement,
+  cardio,
   autre,
 }
 
@@ -17,6 +18,8 @@ extension ExerciseCategoryExtension on ExerciseCategory {
         return 'Équilibre';
       case ExerciseCategory.renforcement:
         return 'Renforcement';
+      case ExerciseCategory.cardio:
+        return 'Cardio';
       case ExerciseCategory.mobilite:
         return 'Mobilité';
       case ExerciseCategory.etirement:
@@ -36,6 +39,8 @@ extension ExerciseCategoryExtension on ExerciseCategory {
         return '🔄';
       case ExerciseCategory.etirement:
         return '🧘';
+      case ExerciseCategory.cardio:
+        return '🔥';
       case ExerciseCategory.autre:
         return '⭐';
     }

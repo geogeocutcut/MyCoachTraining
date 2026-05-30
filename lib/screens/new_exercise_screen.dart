@@ -143,7 +143,7 @@ class _NewExerciseScreenState extends State<NewExerciseScreen> {
       onTap: _pickImage,
       child: Container(
         width: double.infinity,
-        height: 140,
+        height: 200,
         decoration: BoxDecoration(
           color: AppColors.background,
           borderRadius: BorderRadius.circular(12),
@@ -153,8 +153,17 @@ class _NewExerciseScreenState extends State<NewExerciseScreen> {
         child: _imagePath != null
             ? ClipRRect(
                 borderRadius: BorderRadius.circular(12),
-                child:
-                    Image.file(File(_imagePath!), fit: BoxFit.cover))
+                child: Container(
+                  color: AppColors.background,
+                  width: double.infinity,
+                  height: 200,
+                  child: Image.file(
+                    File(_imagePath!),
+                    fit: BoxFit.contain,
+                    width: double.infinity,
+                    height: 200,
+                  ),
+                ))
             : const Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [

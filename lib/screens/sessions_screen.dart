@@ -1,7 +1,10 @@
 // lib/screens/sessions_screen.dart
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'dart:io';
+import 'package:file_picker/file_picker.dart';
 import '../services/data_store.dart';
+import '../services/session_io_service.dart';
 import '../theme/app_theme.dart';
 import 'new_session_screen.dart';
 import 'edit_session_screen.dart';
@@ -29,19 +32,46 @@ class SessionsScreen extends StatelessWidget {
                       fontWeight: FontWeight.bold,
                       color: AppColors.textDark),
                 ),
-                ElevatedButton.icon(
-                  onPressed: () => Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                        builder: (_) => const NewSessionScreen()),
-                  ),
-                  icon: const Icon(Icons.add, size: 18),
-                  label: const Text('Créer'),
-                  style: ElevatedButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 16, vertical: 10),
-                    textStyle: const TextStyle(fontSize: 14),
-                  ),
+                Row(
+                  children: [
+                    OutlinedButton.icon(
+                      onPressed: () async {
+                        final result = await FilePicker.platform.pickFiles(
+                          type: FileType.custom,
+                          allowedExtensions: ['mct'],
+                        );
+                        if (result != null && result.files.single.path != null) {
+                          final store = context.read<DataStore>();
+                          await SessionIOService.importSession(
+                              context, result.files.single.path!, store);
+                        }
+                      },
+                      icon: const Icon(Icons.file_download_outlined, size: 18),
+                      label: const Text('Importer'),
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: AppColors.teal,
+                        side: const BorderSide(color: AppColors.teal),
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 12, vertical: 10),
+                        textStyle: const TextStyle(fontSize: 14),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    ElevatedButton.icon(
+                      onPressed: () => Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                            builder: (_) => const NewSessionScreen()),
+                      ),
+                      icon: const Icon(Icons.add, size: 18),
+                      label: const Text('Créer'),
+                      style: ElevatedButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 16, vertical: 10),
+                        textStyle: const TextStyle(fontSize: 14),
+                      ),
+                    ),
+                  ],
                 ),
               ],
             ),

@@ -7,6 +7,7 @@ import '../services/data_store.dart';
 import '../theme/app_theme.dart';
 import '../widgets/exercise_card.dart';
 import 'new_session_screen.dart';
+import '../services/session_io_service.dart';
 
 class EditSessionScreen extends StatefulWidget {
   final Session session;
@@ -251,6 +252,25 @@ class _EditSessionScreenState extends State<EditSessionScreen> {
             TealButton(
               label: 'Modifier',
               onPressed: _saving ? null : _save,
+            ),
+            const SizedBox(height: 10),
+            SizedBox(
+              width: double.infinity,
+              child: OutlinedButton.icon(
+                onPressed: () {
+                  final store = context.read<DataStore>();
+                  SessionIOService.exportSession(context, widget.session, store);
+                },
+                icon: const Icon(Icons.share_outlined, size: 18),
+                label: const Text('Partager cette séance'),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: AppColors.teal,
+                  side: const BorderSide(color: AppColors.teal),
+                  shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(14)),
+                  padding: const EdgeInsets.symmetric(vertical: 16),
+                ),
+              ),
             ),
             const SizedBox(height: 12),
             SizedBox(

@@ -404,6 +404,7 @@ class _SessionPlayerScreenState extends State<SessionPlayerScreen>
           label: 'DÉBUT DANS',
           value: _formatTime(_remaining),
           color: AppColors.teal,
+          size:220
         ),
         const SizedBox(height: 24),
         Text(
@@ -459,7 +460,7 @@ class _SessionPlayerScreenState extends State<SessionPlayerScreen>
             label: '',
             value: _formatTime(_remaining),
             color: AppColors.teal,
-            size: 180,
+            size: 220,
           ),
           if (ex?.instructions != null)
             Padding(
@@ -511,8 +512,8 @@ class _SessionPlayerScreenState extends State<SessionPlayerScreen>
           ),
           const SizedBox(height: 24),
           Container(
-            width: 180,
-            height: 180,
+            width: 240,
+            height: 240,
             decoration: BoxDecoration(
               shape: BoxShape.circle,
               border: Border.all(color: AppColors.teal, width: 4),
@@ -532,7 +533,7 @@ class _SessionPlayerScreenState extends State<SessionPlayerScreen>
                 Text(
                   '${_currentSE.customValue}',
                   style: const TextStyle(
-                      fontSize: 52,
+                      fontSize: 64,
                       fontWeight: FontWeight.bold,
                       color: AppColors.textDark),
                 ),
@@ -582,7 +583,7 @@ class _SessionPlayerScreenState extends State<SessionPlayerScreen>
           label: title,
           value: _formatTime(_remaining),
           color: color,
-          size: 200,
+          size: 220,
         ),
         const SizedBox(height: 24),
         Text(subtitle,

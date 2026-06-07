@@ -149,7 +149,7 @@ class _HomePage extends StatelessWidget {
               const _EmptyState(
                   message: 'Aucune séance. Créez-en une ci-dessous.')
             else
-              ...store.sessions.take(3).map((s) {
+              ..._topSessions(store).map((s) {
                 final exerciseCount = s.exercises.length;
                 return Card(
                   margin: const EdgeInsets.only(bottom: 10),
@@ -171,12 +171,18 @@ class _HomePage extends StatelessWidget {
                                 ),
                               ),
                               const SizedBox(height: 3),
-                              Text(
-                                '$exerciseCount exercice${exerciseCount > 1 ? 's' : ''} · ${s.rounds} tour${s.rounds > 1 ? 's' : ''}',
-                                style: const TextStyle(
-                                    fontSize: 13,
-                                    color: AppColors.textGrey),
-                              ),
+                              Builder(builder: (_) {
+                                final cutoff = DateTime.now().subtract(const Duration(days: 90));
+                                final count = store.completions
+                                    .where((c) => c.sessionId == s.id && c.completedAt.isAfter(cutoff))
+                                    .length;
+                                return Text(
+                                  '$exerciseCount exercice${exerciseCount > 1 ? 's' : ''} · ${s.rounds} tour${s.rounds > 1 ? 's' : ''}${count > 0 ? ' · $count fois' : ''}',
+                                  style: const TextStyle(
+                                      fontSize: 13,
+                                      color: AppColors.textGrey),
+                                );
+                              }),
                             ],
                           ),
                         ),
@@ -229,6 +235,40 @@ class _HomePage extends StatelessWidget {
 }
 
 // ── Weekly calendar ───────────────────────────────────────────────────────────
+
+/// Returns up to 3 sessions most completed in the last 3 months.
+/// Falls back to the first sessions if none have been completed.
+List<Session> _topSessions(DataStore store) {
+  final cutoff = DateTime.now().subtract(const Duration(days: 90));
+  // Count completions per sessionId within the window
+  final counts = <String, int>{};
+  for (final c in store.completions) {
+    if (c.completedAt.isAfter(cutoff)) {
+      counts[c.sessionId] = (counts[c.sessionId] ?? 0) + 1;
+    }
+  }
+  if (counts.isEmpty) {
+    // No history yet — just show first 3
+    return store.sessions.take(3).toList();
+  }
+  // Sort sessions by count descending, keep only those that exist
+  final ranked = store.sessions
+      .where((s) => counts.containsKey(s.id))
+      .toList()
+    ..sort((a, b) => (counts[b.id] ?? 0).compareTo(counts[a.id] ?? 0));
+  // Top 3 from history; pad with remaining sessions if fewer than 3
+  final result = ranked.take(3).toList();
+  if (result.length < 3) {
+    final seen = result.map((s) => s.id).toSet();
+    for (final s in store.sessions) {
+      if (!seen.contains(s.id)) {
+        result.add(s);
+        if (result.length == 3) break;
+      }
+    }
+  }
+  return result;
+}
 
 class _WeeklyCalendar extends StatelessWidget {
   final List<DateTime> completedDates;

@@ -9,6 +9,7 @@
 //   path_provider: ^2.1.0            (temp directory for export file)
 
 import 'dart:convert';
+import 'package:flutter/foundation.dart';
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:path_provider/path_provider.dart';
@@ -191,6 +192,123 @@ class SessionIOService {
       }
       return true;
     } catch (e) {
+      _showError(context, 'Fichier invalide ou corrompu.\n($e)');
+      return false;
+    }
+  }
+
+  /// Import from raw JSON string (used when receiving via app_links/WhatsApp).
+  static Future<bool> importFromString(
+      BuildContext context, String content, DataStore store) async {
+    debugPrint('MCT >>> importFromString called, length: ${content.length}');
+    try {
+      final payload = jsonDecode(content) as Map<String, dynamic>;
+      debugPrint('MCT >>> JSON decoded OK');
+
+      final exercisesJson = (payload['exercises'] as List<dynamic>?) ?? [];
+      final sessionJson = payload['session'] as Map<String, dynamic>;
+
+      final idMap = <String, String>{};
+      int createdCount = 0;
+      int reusedCount = 0;
+
+      for (final exJson in exercisesJson) {
+        final exportId = exJson['id'] as String;
+        final name = exJson['name'] as String;
+        final existing = store.exercises
+            .where((e) => e.name.toLowerCase() == name.toLowerCase());
+        if (existing.isNotEmpty) {
+          idMap[exportId] = existing.first.id;
+          reusedCount++;
+        } else {
+          final newId = store.newId();
+          await store.addExercise(Exercise(
+            id: newId,
+            name: name,
+            instructions: exJson['instructions'] as String?,
+            category: ExerciseCategoryExtension.fromName(
+                exJson['category'] as String? ?? 'autre'),
+            type: (exJson['type'] as String?) == 'repetitions'
+                ? ExerciseType.repetitions
+                : ExerciseType.duration,
+            value: exJson['value'] as int? ?? 30,
+          ));
+          idMap[exportId] = newId;
+          createdCount++;
+        }
+      }
+
+      final importedExercises =
+          (sessionJson['exercises'] as List<dynamic>? ?? [])
+              .map((e) {
+                final mapped = idMap[e['exerciseId'] as String];
+                if (mapped == null) return null;
+                return SessionExercise(
+                  exerciseId: mapped,
+                  customValue: e['customValue'] as int? ?? 30,
+                  restAfter: e['restAfter'] as int? ?? 15,
+                );
+              })
+              .whereType<SessionExercise>()
+              .toList();
+
+      final baseName = sessionJson['name'] as String? ?? 'Séance importée';
+      final existingNames =
+          store.sessions.map((s) => s.name.toLowerCase()).toSet();
+      String finalName = baseName;
+      int suffix = 2;
+      while (existingNames.contains(finalName.toLowerCase())) {
+        finalName = '$baseName ($suffix)';
+        suffix++;
+      }
+
+      debugPrint('MCT >>> adding session: $finalName');
+      await store.addSession(Session(
+        id: store.newId(),
+        name: finalName,
+        description: sessionJson['description'] as String?,
+        rounds: sessionJson['rounds'] as int? ?? 1,
+        restBetweenRounds: sessionJson['restBetweenRounds'] as int? ?? 60,
+        exercises: importedExercises,
+      ));
+
+      debugPrint('MCT >>> context.mounted: ${context.mounted}');
+      if (context.mounted) {
+        await showDialog(
+          context: context,
+          builder: (_) => AlertDialog(
+            title: const Text('Séance importée ✓'),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(finalName,
+                    style: const TextStyle(fontWeight: FontWeight.bold)),
+                const SizedBox(height: 8),
+                Text(
+                  '• $createdCount exercice${createdCount != 1 ? 's' : ''} '
+                  'créé${createdCount != 1 ? 's' : ''}',
+                  style: const TextStyle(fontSize: 13),
+                ),
+                Text(
+                  '• $reusedCount exercice${reusedCount != 1 ? 's' : ''} '
+                  'réutilisé${reusedCount != 1 ? 's' : ''}',
+                  style: const TextStyle(fontSize: 13),
+                ),
+              ],
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text('OK'),
+              ),
+            ],
+          ),
+        );
+      }
+      return true;
+    } catch (e, stack) {
+      debugPrint('MCT >>> importFromString ERROR: $e\n$stack');
       _showError(context, 'Fichier invalide ou corrompu.\n($e)');
       return false;
     }

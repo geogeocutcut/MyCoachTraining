@@ -37,8 +37,7 @@ class SessionsScreen extends StatelessWidget {
                     OutlinedButton.icon(
                       onPressed: () async {
                         final result = await FilePicker.platform.pickFiles(
-                          type: FileType.custom,
-                          allowedExtensions: ['mct'],
+                          type: FileType.any
                         );
                         if (result != null && result.files.single.path != null) {
                           final store = context.read<DataStore>();

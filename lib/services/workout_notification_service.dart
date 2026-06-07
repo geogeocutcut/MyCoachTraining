@@ -38,7 +38,7 @@ class WorkoutNotificationService {
   /// Call once at app startup (e.g. in main.dart before runApp).
   static Future<void> init() async {
     if (_initialized) return;
-    const android = AndroidInitializationSettings('@mipmap/ic_launcher');
+    const android = AndroidInitializationSettings('@drawable/ic_notification');
     const ios = DarwinInitializationSettings();
     await _plugin.initialize(
       const InitializationSettings(android: android, iOS: ios),

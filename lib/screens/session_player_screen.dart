@@ -460,7 +460,7 @@ class _SessionPlayerScreenState extends State<SessionPlayerScreen>
             label: '',
             value: _formatTime(_remaining),
             color: AppColors.teal,
-            size: 220,
+            size: 200,
           ),
           if (ex?.instructions != null)
             Padding(
@@ -583,7 +583,7 @@ class _SessionPlayerScreenState extends State<SessionPlayerScreen>
           label: title,
           value: _formatTime(_remaining),
           color: color,
-          size: 220,
+          size: 200,
         ),
         const SizedBox(height: 24),
         Text(subtitle,
